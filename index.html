@@ -1,1 +1,248 @@
 
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Wire Cut Optimizer (FF vs BF)</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: auto; }
+    textarea, input { width: 100%; margin-bottom: 10px; padding: 8px;  height: 100px; }
+    button { padding: 10px 20px; }
+    pre { background: #f0f0f0; padding: 10px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Wire Cut Optimizer</h1>
+
+  <h3>Cut List (length, quantity per line):</h3>
+  <textarea id="cutListInput">70, 1
+60, 1
+40, 1
+20, 1
+</textarea>
+
+<!-- First Fit
+60, 1
+40, 1
+40, 1
+40, 1
+
+100, 1
+100, 1
+100, 1
+-->
+<!-- Best Fit
+70, 1
+60, 1
+40, 1
+20, 1
+
+100, 1
+100, 1
+100, 1
+-->
+
+
+  <h3>Available Stock Lengths (length or length,quantity per line):</h3>
+  <textarea id="stockInput">
+100, 1
+100, 1
+100, 1</textarea>
+
+  <button onclick="compareStrategies()">Compare Strategies</button>
+
+  <h3>Optimized Cutting Plan:</h3>
+  <pre id="result"></pre>
+
+  <script>
+    function parseCuts(input) {
+      const lines = input.trim().split('\n');
+      const cuts = [];
+      for (let line of lines) {
+        let [length, qty] = line.split(',').map(Number);
+        for (let i = 0; i < qty; i++) cuts.push(length);
+      }
+      return cuts.sort((a, b) => b - a); // Descending
+    }
+
+    function parseStock(input) {
+      const lines = input.trim().split('\n');
+      const stock = [];
+      for (let line of lines) {
+        let parts = line.split(',').map(Number);
+        if (parts.length === 1) {
+          stock.push(parts[0]);
+        } else if (parts.length === 2) {
+          for (let i = 0; i < parts[1]; i++) stock.push(parts[0]);
+        }
+      }
+      return stock;
+    }
+    
+    
+
+    function totalScrap(bins) {
+      return bins.reduce((sum, b) => sum + b.remaining, 0);
+    }
+
+/*********************************
+BIN FUNCTIONS
+*/
+
+    function firstFit(cuts, stock) {
+      let bins = stock.map(len => ({ capacity: len, remaining: len, cuts: [] }));
+      for (let cut of cuts) {
+        let placed = false;
+        for (let bin of bins) {
+          if (cut <= bin.remaining) {
+            bin.cuts.push(cut);
+            bin.remaining -= cut;
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) return null; // cannot fit all cuts
+      }
+      console.log(bins);
+      return bins;
+    }
+
+    function bestFit(cuts, stock) {
+      let bins = stock.map(len => ({ capacity: len, remaining: len, cuts: [] }));
+      for (let cut of cuts) {
+        let bestBin = null;
+        let minWaste = Infinity;
+        for (let bin of bins) {
+          let waste = bin.remaining - cut;
+          if (waste >= 0 && waste < minWaste) {
+            minWaste = waste;
+            bestBin = bin;
+          }
+        }
+        if (bestBin) {
+          bestBin.cuts.push(cut);
+          bestBin.remaining -= cut;
+        } else {
+          return null; // cannot fit all cuts
+        }
+      }
+      console.log(bins);
+      return bins;
+    }
+    
+    function firstFitDecreasing(cuts, stock) {
+  // Sort cuts in descending order
+  const sortedCuts = [...cuts].sort((a, b) => b - a);
+  // Reuse firstFit logic (or inline if preferred)
+  let bins = stock.map(len => ({ capacity: len, remaining: len, cuts: [] }));
+
+  for (let cut of sortedCuts) {
+    let placed = false;
+    for (let bin of bins) {
+      if (cut <= bin.remaining) {
+        bin.cuts.push(cut);
+        bin.remaining -= cut;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) return null; // cut didn't fit
+  }
+  console.log(bins);
+  return bins;
+}
+    
+function bestFitDecreasing(cuts, stock) {
+  // Sort cuts in descending order
+  const sortedCuts = [...cuts].sort((a, b) => b - a);
+  let bins = stock.map(len => ({ capacity: len, remaining: len, cuts: [] }));
+
+  for (let cut of sortedCuts) {
+    let bestBin = null;
+    let minWaste = Infinity;
+
+    for (let bin of bins) {
+      let waste = bin.remaining - cut;
+      if (waste >= 0 && waste < minWaste) {
+        bestBin = bin;
+        minWaste = waste;
+      }
+    }
+
+    if (bestBin) {
+      bestBin.cuts.push(cut);
+      bestBin.remaining -= cut;
+    } else {
+      return null; // cut didn't fit
+    }
+  }
+console.log(bins);
+  return bins;
+}
+
+
+/*****************************************************************
+ * 1.  REGISTER ALL ALGORITHMS HERE
+ *****************************************************************/
+const strategies = [
+  { name: "First Fit", fn: firstFit },
+  { name: "Best Fit",  fn: bestFit },
+  //{ name: "First Fit Descreasing",  fn: firstFitDecreasing },
+  //{ name: "Best Fit Descreasing",  fn: bestFitDecreasing },
+  // 👇 Add more like this
+  // { name: "Worst Fit", fn: worstFit },
+  // { name: "FFD",       fn: firstFitDecreasing },
+];
+
+/*****************************************************************
+ * 2.  COMPARE STRATEGIES
+***/
+function runStrategy(strategy, cuts, stock) {
+  const bins = strategy.fn([...cuts], [...stock]);     // keep args pristine
+  console.log(strategy);
+  return {
+    name: strategy.name,
+    bins,
+    scrap: bins ? totalScrap(bins) : Infinity,
+    feasible: !!bins
+  };
+}
+
+function pickBestResult(results) {
+  const feasible = results.filter(r => r.feasible);
+  if (feasible.length === 0) return null;
+  return feasible.reduce((best, cur) => cur.scrap < best.scrap ? cur : best);
+}
+
+function compareStrategies() {
+  const cuts  = parseCuts(document.getElementById("cutListInput").value);
+  const stock = parseStock(document.getElementById("stockInput").value);
+
+  
+  // run every registered strategy
+  const results = strategies.map(s => runStrategy(s, cuts, stock));
+  const best    = pickBestResult(results);
+
+  let output = "";
+
+  if (!best) {
+    output = "No feasible solution: Not enough stock to satisfy all cuts.";
+  } else {
+    output += `Best Strategy ➜ ${best.name}\nTotal Scrap ➜ ${best.scrap}\n\n`;
+    best.bins.forEach((bin, i) => {
+      output += `Stock ${i + 1} (${bin.capacity}): ` +
+                `Cuts = [${bin.cuts.join(", ")}] | Scrap = ${bin.remaining}\n`;
+    });
+
+    // show a summary of *all* strategies
+    output += "\n--- Strategy Summary ---\n";
+    results.forEach(r => {
+      output += `${r.name.padEnd(12)} : ` +
+                (r.feasible ? `${r.scrap} scrap` : "no solution") + "\n";
+    });
+  }
+
+  document.getElementById("result").innerText = output;
+}
+  </script>
+</body>
+</html>
